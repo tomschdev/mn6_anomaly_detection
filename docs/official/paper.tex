@@ -1,0 +1,755 @@
+%%
+\documentclass[sigplan,authorversion,nonacm, 9pt]{acmart}
+\usepackage{placeins}
+\usepackage{algorithm} 
+\usepackage{algpseudocode} 
+\usepackage{etoolbox}
+
+\addtolength{\oddsidemargin}{-.6cm}
+\addtolength{\evensidemargin}{-.6cm}
+\addtolength{\textwidth}{1.2cm}
+% \addtolength{\topmargin}{-.2cm}
+% \addtolength{\textheight}{.4cm}
+
+\settopmatter{printacmref=false}
+\settopmatter{printfolios=true}
+
+%% \BibTeX command to typeset BibTeX logo in the docs
+\AtBeginDocument{%
+  \providecommand\BibTeX{{%
+    \normalfont B\kern-0.5em{\scshape i\kern-0.25em b}\kern-0.8em\TeX}}}
+
+%% Rights management information.  This information is sent to you
+%% when you complete the rights form.  These commands have SAMPLE
+%% values in them; it is your responsibility as an author to replace
+%% the commands and values with those provided to you when you
+%% complete the rights form.
+% \setcopyright{acmcopyright}
+% \copyrightyear{2021}
+% \acmYear{2021}
+% \acmDOI{10.1145/1122445.1122456}
+
+%% These commands are for a PROCEEDINGS abstract or paper.
+% \acmConference[Woodstock '18]{Woodstock '18: ACM Symposium on Neural
+%   Gaze Detection}{June 03--05, 2018}{Woodstock, NY}
+% \acmBooktitle{Woodstock '18: ACM Symposium on Neural Gaze Detection,
+%   June 03--05, 2018, Woodstock, NY}
+% \acmPrice{15.00}
+% \acmISBN{978-1-4503-XXXX-X/18/06}
+
+%% Submission ID.
+%%\acmSubmissionID{123-A56-BU3}
+
+%% If you are preparing content for an event
+%% sponsored by ACM SIGGRAPH, you must use the "author year" style of
+%% citations and references.
+%% Uncommenting
+%% the next command will enable that style.
+%%\citestyle{acmauthoryear}
+
+%% end of the preamble, start of the body of the document source.
+
+\begin{document}
+
+
+
+\title{Robust Anomaly Detection in CCTV Surveillance}
+
+\author{Thomas Scholtz}
+\email{21681147@sun.ac.za}
+\affiliation{%
+  \institution{Supervisor: Dr Mkhuseli Ngxande} 
+  \institution{Division of Computer Science}
+  \country{University Of Stellenbosch}
+}
+
+\begin{abstract}
+Given the vast amount of publicly available CCTV surveillance and the capabilities of modern computer vision algorithms, the task of automatic anomaly detection is due to be solved in the near future. A solution that is competent over the large problem domain requires a certain level of sophistication such that it can replicate the contextual understanding of a human monitor. It is hypothesised that a single approach to anomaly detection can not be expected to perform both low-level and high-level monitoring of video frames which is required for robust anomaly detection. 
+This paper proposes a solution to the anomaly detection problem in the form of a consensus framework that combines inputs from three sources to provide a final verdict on the perceived degree of anomaly contained in a video. The first approach, later introduced as the base model, is an implementation of previous work in anomaly detection that is specifically chosen for its emphasis on the learning of high-level context. The second and third are novel anomaly detection heuristics that operate on a per-frame basis i.e., with no regard for high-level context. The paper concludes with an evaluation and analysis of the three approaches and a discussion of the merit of a consensus framework. A final AUC of 0.7156 is achieved on the UCF Crime dataset; however, this result is not attributable to the consensus framework.
+\end{abstract}
+
+
+\keywords{anomaly detection, multiple instance learning, 3D convolutional neural networks, optical flow}
+
+\maketitle
+
+\section{Introduction}
+\par
+
+In 2012, only $0.5\%$ of all data was analysed \cite{iot}. The quantity of data accumulated in the years 2015 and 2016 exceeded that of the entire previous history \cite{iot}. Currently, the ratio between unique and replicated data is projected to be between 1:10 by 2024 \cite{iot}. In the context of CCTV surveillance, this information suggests that the use of human monitors for anomaly detection is no longer realistic, nor is it necessary. This is for two reasons in particular: first, there is a glaring deficiency in the use of surveillance cameras due to an unworkable ratio of surveillance data to human monitoring capabilities; second, recent progress in the fields of computer vision and deep learning implies that artificial agents are capable of performing anomaly detection with competitive accuracy and full coverage of footage. These agents are frameworks that detect anomalies through various techniques which aim to learn the appearance, motion and context which characterise anomalies. In unseen footage, the unpredictability of appearance and motion, or replication of learned anomalous context, is flagged by a competent framework. 
+\par
+
+The task of real-world anomaly detection spans a variety of diverse and complex situations, each with different versions of normal and anomalous activity. In this work, the anomaly detection problem is somewhat reduced to thirteen classes of anomalous activities contained within the UCF Crime dataset \cite{dataset}. The dataset consists of real-world videos captured by CCTV surveillance cameras. The setting is not constrained in any way, although the majority of instances depict roads, public walkways, residential areas, and shops. The problem statement, at the highest level, is to detect anomalies within footage by mapping sequences of frames to anomaly scores. Frames that correspond to scores that exceed a discriminative threshold are considered to be anomalous. Hypothetically, a trained model of the proposed solution is applicable to on-line anomaly detection on a vast majority of unseen CCTV footage by way of transfer learning. 
+\par
+% challenges
+The lack of a general definition for 'normal' and 'anomalous' poses a difficult challenge when attempting to develop a robust framework i.e., one that performs across the full spectrum of anomalies. 
+Additionally, anomalous events occur infrequently in comparison to normal activities and therefore solutions should have a certain degree of sophistication to deter false positives.
+\par
+% solutions
+Given the pressing need for artificial surveillance monitoring and the complexity that comes with developing such a system, robust real-world anomaly detection is currently an important field of research that receives a considerable amount of attention \cite{sultani} \cite{wang} \cite{nguyen} \cite{park} \cite{feng} \cite{liu}. 
+\par
+% this paper's solution
+This paper presents a solution in the form of a consensus between three models. 
+Where the majority of solutions in the literature rely on a single measure of anomaly in all scenarios (provided by a single approach) \cite{sultani} \cite{nguyen} \cite{park} \cite{liu}, the proposed solution receives input from three models/heuristics with contrasting approaches. That way, the strengths of multiple solutions can be leveraged to assist in covering the spectrum of potential anomalies. The benefits of this decision are expected to be two-fold: multiple detection techniques are at the disposal of the framework, and false positives are required to be redundant if they are to prevail.
+\par
+%base model
+Of the three models implemented, the most substantial approach is adopted from Sultani et al. \cite{sultani} - an architecture that implements a 3D Convolutional Network for feature extraction (C3D), Artificial Neural Network (ANN), and Multiple Instance Learning (MIL) ranking loss. This approach uniquely formulates anomaly detection as a weakly supervised regression problem and achieved state-of-the-art results in 2019. The remainder of this paper will refer to this model as the base model.
+\par
+% CRAFT and LKKM
+Furthermore, two novel unsupervised approaches were developed during this work, namely CRAFT (Consecutive frame construction with RAFT optical flow estimation) and LKKM (Lukas Kanade K-Means pattern deviation). These approaches, which are better described as anomaly detection heuristics, serve the purpose of detecting the locality of anomalies on a fine-grained level by performing computations on a per-frame basis. CRAFT, in particular, only has a single frame look-ahead.
+CRAFT translates recent research in optical flow estimation into a frame construction heuristic that quantifies anomaly by reconstruction error. LKKM applies cumulative clustering to sparse optical flow vectors to provide a measure of deviation from regular patterns. 
+\par 
+The rationale behind the structure of the consensus framework is as follows:
+the base model learns the context surrounding anomalies and how that differs from normal, yet anomalous seeming, footage. The expectation is that it detects anomalies on a coarse level - not necessarily with pinpoint accuracy. Thereafter, CRAFT and LKKM will be applied to suspicious sections of footage (identified by the base model) to detect the locality of a potential anomaly. If the base model is sufficient in deterring false positives, the result is a filtered version of anomalous flags (supplied by CRAFT and LKKM) which mostly correspond to true positives. In summary, this paper makes the following contributions:
+\begin{itemize}
+    \item The consensus framework - a combination of three approaches to form a robust anomaly detection strategy
+    \item A modified version of the framework proposed by Sultani et al. \cite{sultani} was implemented in Tensorflow \cite{tensorflow} \& Keras \cite{keras}. The modifications are listed:
+    \begin{itemize}
+        \item modifications to the training method such that contribution from the full training set is ensured
+        \item cross-validation of additional video-level evaluation metrics to measure performance during training
+        \item an early stopping callback function for prevention of overfitting 
+        \item experimentation with a deeper architecture and an additional loss constraint to provide improved training incentive
+    \end{itemize}
+    \item CRAFT - a novel unsupervised heuristic for anomaly detection
+    \item LKKM - a second novel unsupervised heuristic for anomaly detection
+    \item A web application to demonstrate the performance of the anomaly detection framework on the UCF Crime dataset \cite{dataset}
+\end{itemize}
+The results provide evidence to support the argument for the use of deep learning in anomaly detection, specifically the approach suggested by Sultani et al. \cite{sultani}. Additionally, CRAFT and LKKM prove to be effective at quantifying anomalies on a fine-grained level but have the expected drawback of being over-sensitive owing to the lack of higher-level context on footage. The merit of a consensus framework is questioned as a result of the difficulties introduced during the combination of the scores of the base model, CRAFT, and LKKM.
+
+\section{Related Work} 
+\subsection{Anomaly Detection}
+Anomaly detection aims to quantify the degree of abnormality by assigning anomaly scores along the temporal axis of a video such that peaks in anomaly scores correspond to true anomalies. This problem statement is inherently vague because there is no prior information provided on the contents of videos - the only assumption is that the camera position is fixed.
+\par
+Consider two scenarios: a rare bicycle passing through a sidewalk of pedestrians; and a road accident on a highway. It seems obvious that the second example is more anomalous than the first, given the context that humans possess. Technically, both are anomalous in the absence of this context. This comparison highlights that anomalies are difficult to describe to computers. It is not the appearance and motion aspect, but rather the contextual aspect of anomalous activity that is the source of difficulty.  With that being said, deep learning approaches, such as the one implemented by the base model, allow the training data to loosely dictate the general type of anomaly to be detected by formulating the appropriate loss function.
+\par
+This research focuses on anomaly detection in its most useful application to society i.e. as an alerting system to unwanted activity (accidents, crime, malice). Note that anomalies are not classified, but rather recognised as anomalous as opposed to normal.
+
+\subsection{Existing Approaches to Anomaly Detection}
+A common approach in the literature is to learn an idea of normal activity and judge the degree of anomaly in unseen footage on whether or not it conforms to the learned idea of normal. This approach is prevalent in anomaly detection frameworks which fall under the category of \textit{encoder-based methods}, which train both the feature encoder and classifier simultaneously \cite{feng}.
+The approach is implemented with various methodologies \cite{nguyen} \cite{park} \cite{liu}. All of them operate on the assumption that part of the definition of an anomaly is that it is rare and therefore not learned as part of the framework’s idea of normal activity. Frame reconstruction is a popular method used in determining the similarity between an unseen frame and the idea of normal. The reconstruction error is inversely proportional to the similarity to the learned representation of normal activity and thus proportional to the contained anomaly in a video.
+\par
+Specific implementations are elaborated on:
+Appearance-Motion Correspondence \cite{nguyen} learns to reconstruct deconstructed normal frames, using a Convolutional Auto-encoder, in terms of plain appearance and motion (motion represented as optical flow). In testing, anomalous frames yield high reconstruction error because the reconstruction of anomalous frames is not learned. Memory guided normality \cite{park} takes a similar approach to Appearance-Motion Correspondence except a memory module is introduced. The memory module records many prototypical features of commonly seen items, forming a dictionary of normal features from different viewpoints.
+A robust collection of normal activity is learned and queried with the features of new frames to retrieve similar features which aid in reconstruction. 
+Anomaly is quantified by reconstruction error and the distance between query features and the nearest items in the memory module.
+\par
+Conceptually, there are some obvious problems with the general approach of normal frame reconstruction:
+\begin{itemize}
+    \item It is required that a new concept of normal is learned for each situation because it is not anomalies that are learned but rather the absence of normal activity.
+    \item It is difficult to account for all normal events.
+    \item A dictionary of normal events does not adjust well to environmental changes (for example, day to night) and, as a result, a high false-positive rate manifests.
+\end{itemize}
+In contrast, \textit{encoder-agnostic} methods use task-agnostic features of videos extracted from a vanilla feature-encoder \cite{feng} (e.g. C3D) to estimate anomaly scores. Most recently, a new stance on the formulation of the anomaly detection problem, falling under the encoder-agnostic category, has been developed by Sultani et al. \cite{sultani}. The approach attempts to associate anomalous features with higher anomaly scores by learning a mapping between features and scores. Anomaly detection is converted into a regression problem where the weights of an ANN are the predictors and the anomaly score is the response. The complexity of this approach comes with providing appropriate incentive, in the form of a custom loss function, during training of the ANN. The work of Sultani et al. marks significant progress in encoder-agnostic anomaly detection, reflected by state-of-the-art results and further extensions contributed by Zhang et al (inner-bag score gap regularisation) \cite{innerbag}, and Wan et al. (dynamic MIL loss and center-guided regularisation) \cite{dynamicmil}.
+The components introduced in the original paper \cite{sultani} are elaborated on in \ref{subsec:C3D} and \ref{subsec:MIL}.
+
+\subsection{Recurring Shortfalls} \label{subsec:shortfalls}
+At the highest level, there are two recurring challenges faced by many anomaly detection frameworks:
+\begin{itemize}
+    \item Frameworks struggle to cover the wide spectrum of potential anomalies. Each framework has its strengths and weaknesses and therefore lacks the robustness to generalise across polar examples of anomaly. For example, obvious explosion versus subtle petty theft.
+    \item False positives are difficult to identify. If predicted scores become saturated with false positives, a framework becomes useless. 
+\end{itemize}
+
+\subsection{3D Convolutional Neural Networks} \label{subsec:C3D}
+Convolutional neural networks (CNNs) enable generic image description by reducing images into vectors which provide a compact representation of an image's defining features. This is achieved through a series of convolution and pooling layers which ultimately reduce the resolution of an image by extracting the most significant pixels within a receptive field \cite{dutran}. These compact representations enable the application of deep learning techniques to computer vision problems by reducing model complexity and the computational expense required to process visual data. 
+\par
+C3D \cite{dutran} refers to a specific architecture of a 3D Convolutional Neural Network (3D ConvNet) that is a simple yet effective approach for spatiotemporal feature learning which selectively attends to both motion and appearance. 
+CNNs are typically applied in a 2-Dimensional setting i.e., each frame is processed independently. 3D ConvNets differ in the sense that frames are processed in volumes (a stack of consecutive frames). In 3D ConvNets, convolution and pooling operations are performed spatiotemporally while in 2D ConvNets they are performed only spatially. Therefore, the use of C3D is necessary to provide a general video descriptor that expresses both an image's appearance and salient motion.
+C3D uses a homogeneous architecture with small $3 \times 3 \times 3$ convolution kernels in all layers - this kernel size is empirically selected by the authors. With a linear SVM classifier, the video descriptor outperforms state-of-the-art methods \cite{idt} \cite{imagenet} on three different activity classification/scene recognition benchmarks \cite{ucf101} \cite{yupenn} \cite{maryland} and is comparable on a fourth \cite{sports1m}. Finally, C3D's learned features are generic, compact and relatively efficient to compute. 
+\subsection{MIL} \label{subsec:MIL}
+Multiple Instance Learning (MIL) is a weakly supervised learning approach. MIL is applied in the case where instances are collected into bags and labels are only known at bag-level i.e., bags are labeled based on whether they contain a certain type of instance or not; however, no information is provided on individual instances. By repeatedly observing the features of instances in labeled bags, MIL learns to associate labels with instances and thus features. In the context of anomaly detection, bags are labeled as either normal or anomalous. Normal bags only contain normal instances whereas anomalous bags contain at least one anomalous instance. The training process learns certain features to be characteristic of anomaly by way of determining recurring features in all anomalous scenarios. The approach can also be used to learn false positives - which is impressive given the complexity of a false positive in anomaly detection and the simplicity of the concept behind MIL. Sultani et al. \cite{sultani} propose this idea by employing MIL ranking loss to provide training incentive to an ANN which converts a bag of video segments into a bag of corresponding anomaly scores. Bags are processed in pairs (one anomalous and one normal) and the maximum score of each bag is used in computing loss. The loss equation incentivises the maximum distance between scores that are associated with true positive features and false-positive features. 
+\par
+MIL relaxes the assumption of having accurate temporal annotations of anomalies while still enabling the precise features of anomalies to be learned. This is vital in anomaly detection, where a fully supervised approach is unrealistic due to the variety of situations to be considered and the laborious task of obtaining temporal annotations on necessarily large datasets.
+
+
+\subsection{Optical Flow}
+    Optical flow quantifies the relative motion of objects in video by estimating the displacement of pixels between two consecutive frames. In the case of dense optical flow, estimations are computed for each pixel in a frame. This differs from sparse optical flow where estimations are computed for key features in the frames.
+    There have been a significant amount of recent applications of optical flow to higher-level problems in computer vision i.e., anomaly detection \cite{futureframepred}, view synthesis \cite{viewsyn} and video prediction \cite{videopred}. 
+    Traditional optical flow estimation systems formulate hand-crafted optimisation problems over the space of dense displacement fields between a pair of images \cite{traditionalflow}. In contrast, modern approaches apply deep learning techniques in the form of recurrent neural networks to iteratively learn and refine the quality of estimations \cite{raft} \cite{ren} \cite{flownet}. Deep learning approaches are trained once-off to learn to produce estimations that generalise to unseen footage without the need to train the model for that specific context.
+\par
+RAFT \cite{raft} is a state-of-the-art deep learning architecture for dense optical flow estimation.
+RAFT produces optical flow as a result of three phases of computation: feature extraction, correlation volume construction, and iterative update of predicted flow through correlation look-up. 
+At the time of publishing, the framework achieved the best results in the field, beating the previous best by a thirty percent error reduction. RAFT also exhibits considerable computational efficiency and strong generalisation, which are of high relevance in the anomaly detection task.
+\par
+The Lukas Kanade method  \cite{lukaskanade} is a long-standing traditional approach for sparse optical flow.
+Under the assumption that optical flow is uniform over a $n x n$ pixel window, optical flow is computed for that window by constructing a system of linear equations containing $n^2$ rows. Each equation expresses optical flow in terms of the partial derivative of pixel intensity in both the $x$ direction and $y$ direction, as well as the derivative on the temporal axis. The system is solved via the least-squares method for the optical flow vector which is subsequently applied to all pixels in the window.
+Commonly, these windows are formed around significant features of a frame (determined by Shi-Tomasi corner detection \cite{shitomasi}), rather than the full frame - that way the Lukas Kanade method is applied to textured regions where spatial gradients are significant. This results in a large variance of values in the system of equations and linear independence between equations which ultimately realises well-defined optical flow after least squares regression. 
+
+\subsection{$K$-Means Clustering}
+K-Means clustering \cite{kmeans} is a method of vector quantisation that aims to partition $n$ observations into $k$ clusters in which each observation belongs to the cluster with the nearest mean (cluster centroid), serving as a prototype of the cluster.
+K-Means finds optimal centroids by alternating between assigning data points to clusters based on the current centroids and choosing centroids based on the current assignment of data points to clusters. This process is an iterative minimisation of within-cluster variance (measured by Euclidean distance), with respect to centroid positions.
+
+\section{Implementation} \label{sec:implementation}
+This section details the implementation of the consensus framework's components, each of which converts videos into score profiles. The evaluation process of the framework, along with an explanation of performance metrics, is contained in \ref{sec:empirical}.
+
+% In this section you discuss how you approached, implemented, and solved your assignment choice. You provide
+% pseudo-code where necessary and discussions of the solutions that you have implemented. This is also the
+% section where your discussion specialises on the concepts mentioned in the background section. Be very specific
+% in your discussions in this section.
+\subsection{Base Model}
+The implementation of the base model is divided into two parts: extraction of descriptive features from videos and training of an ANN to map said features to anomaly scores. 
+\par
+\subsubsection{C3D: Feature Extraction}
+The C3D architecture is used for feature extraction. A version of Du Tran's \cite{dutran} architecture is implemented in Keras \& Tensorflow. The architecture is comprised of eight convolution layers, five pooling layers, two fully connected layers, and a softmax output layer. For the purpose of this work, only the output of the first fully connected layer, \texttt{fc6}, is relevant - the final fully connected layer, together with the softmax output, is for classification purposes. $l_2$ normalisation is applied to the output of \texttt{fc6} to form a final descriptor. \hyperref[fig:basemodel]{Figure 1} contains a diagram of the implemented C3D architecture. 
+\par
+C3D lends itself well to transfer learning which allows for the use of pre-trained weights from the Sports-1M dataset \cite{sports1m}. 
+Feature extraction is executed once-off for all videos as the features yielded are deterministic and the extraction process is computationally expensive and time-consuming.
+The result of the feature extraction phase is, for each video in the relevant dataset, a mapping per 16 frames to a 4096D column vector which can be used as input to the ANN. 
+\par
+\subsubsection{ANN: Mapping Features to Scores}
+The ANN maps feature vectors to anomaly scores. An anomaly score is a floating-point number in the range $[0,1]$, with higher scores correlating to a higher degree of contained anomaly within features. The ANN architecture is comprised of 3 layers. The input layer has 4096 units followed by two hidden layers, 512 and 32 units, respectively. The output layer has one unit. ReLU and Sigmoid activation functions are used for the first and last fully connected layers, respectively.  Dropout regularisation is applied after each hidden layer to prevent overfitting \cite{dropout}. 
+\subsubsection{MIL: Provision of Loss} \label{sec:milloss}
+% The ANN is wrapped in a MIL ranking loss function. Combined with a custom input mechanism, the unique loss function incentivises the learning of a mapping between anomalous features and anomalous scores. 
+% The loss function is crafted with the following in mind: the base model is developed to learn the general context of anomalies over lengthy, untrimmed videos which are weakly labeled, much like those that are expected from on-line, real-world scenarios. Therefore, the model must be competent given significant quantities of data. Furthermore, it can be assumed, with a relatively high level of confidence, that anomalous activity is rare and characterised by a significant difference in features to surrounding normal features. With that being said, 
+The loss function dictates that training is conducted according to the following structure:
+videos are divided into $\mathcal{S}$ segments and all 4096D feature vectors within a segment are averaged to form a single 4096D feature vector to represent a segment. A video is now described by a $\mathcal{S} \times 4096$ array. Videos, represented by respective $\mathcal{S}$ feature vectors, feed through the ANN in batches of $2\times\mathcal{B}$ ($\mathcal{B}$ normal, $\mathcal{B}$ anomalous). Each of the $2\times\mathcal{B}$ videos are now represented by $\mathcal{S}$ scalars (anomaly scores) corresponding to $\mathcal{S}$ feature vectors, this $\mathcal{S}$-score representation of a video is referred to as a bag, $B$. Each of the $\mathcal{B}$ normal bags is paired with one of the $\mathcal{B}$ anomalous bags. The maximum score is extracted from the $\mathcal{S}$ instances in each bag of the pairing - ideally the maximum score of the anomalous bag is a true positive and that of the normal bag is a false positive. To obtain the loss, the maximum scores from each of the $\mathcal{B}$ pairings are inputted into the following loss function:
+\begin{equation}
+    l(B_a, B_n) = \max (0, 1 - \max_{i \in B_a} f(S_{a}^{i}) + \max_{i \in B_n} f(S_{n}^{i}) )
+\end{equation}
+where:
+\begin{itemize}
+    \item[] $B_a$, $B_n$ are anomalous and normal bags, respectively. 
+    \item[] $f$ is the mapping from $4096D$ feature vector to anomaly score scalar. 
+    \item[] $S^{i}$ is the 4096D feature vector representing the $i$th segment of the relevant video.
+\end{itemize}
+Note that loss is only computed as a function of the maximum scores of each bag such that the difference between true and false positives is maximised. It is expected that the ANN learns weights such that the network will learn a generalised model to predict high scores for anomalous segments in positive bags, and low scores for anomalous-seeming scores in negative bags.
+\par
+Additional constraints are introduced to the loss function to provide sufficient incentive with respect to the regularisation of weights and sophistication of score profiles.
+\par
+A temporal smoothness constraint penalises erratic score profiles, incentivising the minimisation of differences between temporally consecutive scores:
+
+\begin{equation}
+    t(B_a) = \lambda_{1} \sum_{i}^{m=\mathcal{S}-1} (f(S_{a}^{i})-f(S_{a}^{i+1}))^{2}
+\end{equation}
+
+A sparsity constraint penalises the abundant allocation of high anomaly scores, incentivising the minimisation of anomaly scores:
+\begin{equation}
+    s(B_a) = \lambda_{2} \sum_{i}^{m=\mathcal{S}} f(S_{a}^{i})
+\end{equation}
+The final loss function combines the above components and appends a regularisation term, extending the regression problem to a ridge regression problem:  
+\begin{equation} \label{eq:losseq}
+    L(\mathcal{W}) = l(B_a, B_n) + s(B_a) + t(B_a) + \vert\vert \mathcal{W} \vert\vert
+\end{equation}
+$\mathcal{W}$ refers to the weights of the network. A shrinkage penalty is applied to the values of the weights to constrain them towards zero, thus reducing the variance of the model in exchange for a small amount of bias, ultimately improving generalisation of the model \cite{islr}. A third constraint, which incentivises large differences between minimum and maximum scores in score profiles of anomalous videos, is introduced for the purpose of experimentation on the base model in \ref{sec:empirical}. The third constraint is multiplied by coefficient $\lambda_3$.  
+
+The computed loss is back-propagated for the whole batch by way of mini-batch stochastic gradient descent. 
+The above process describes a single training batch. Training batches are executed sequentially over the dataset such that all normal and anomalous data is used. The completion of training on the full dataset, in batches, represents one training epoch. The dataset is shuffled between batches to obtain different pairings between normal and anomalous videos.
+\par
+An early-stop callback function is implemented to prevent overfitting of the training instances. This function computes validation loss after a fixed number of epochs and monitors the validation loss divided by the training loss. If the metric is monotonically increasing for a certain amount of consecutive epochs, execution is halted as a precaution against overfitting. 
+\par
+Finally, video-level evaluation (VLE) is conducted at fixed intervals in the training such that improved feedback on the ability of the model can be obtained throughout training. VLE involves evaluating the current state of the model by considering a normal video with a full score profile below a threshold as a true negative instance; and an anomalous video with at least one score above the same threshold as a true positive. The VLE metric is represented as area under curve (AUC) \cite{auc}, thereby conducting this evaluation at multiple thresholds. VLE is a lenient metric with respect to anomalous instances; however, it provides a good approximation of the model's quality as the only aspect it does not account for is the locality of a flagged anomaly in anomalous video.
+\par
+\hyperref[fig:basemodel]{Figure 1} displays a diagram that outlines the base model's training process.
+\begin{figure*}[h!]
+\centering
+\includegraphics[width=\linewidth, height=6.9cm]{basemodel.png}
+\caption{A flow diagram of the base model's training procedure. The pair of anomalous and normal videos represent a single training instance in a batch of $\mathcal{B}$ pairs. Note that the $L(\mathcal{W})$ refers to equation \ref{eq:losseq}.}
+\label{fig:basemodel}
+\end{figure*}
+
+
+\subsection{CRAFT}
+% what it is
+ The CRAFT anomaly detection heuristic is developed to reflect low-level abnormalities in activity in the consensus score, where the approach of the base model is too high-level to detect such a low-level anomaly. Du Tran states that C3D is not a good descriptor for low-level vision tasks; and that \textit{C3D is designed to complete a high-level vision task} \cite{dutran2}, therefore the heuristic is based around RAFT's optical flow estimations instead of the already computed C3D features.
+CRAFT uses RAFT \cite{raft} to construct future frames by applying optical flow to current frames i.e., realising predictions of motion by literally displacing pixels according to their predicted displacement. 
+RAFT is trained on normal data with the expectation that it will output sub-standard optical flow estimations when presented with anomalous data. CRAFT is designed to exploit RAFT's poor performance on precarious sections of video such that a significant reconstruction error can be obtained, thereby quantifying the degree of anomaly within a video. 
+\par
+One problem with CRAFT's initial approach was that it depended on ground truth optical flow between frames such that optical flow predictions could be evaluated. The solution to this problem draws inspiration from the prevalent reconstruction error approach appearing in previous anomaly detection frameworks \cite{nguyen} \cite{park}. CRAFT's implementation is adapted such that ground truth can be obtained as the consecutive frame, the frame which is to be reconstructed. In the case that perfect optical flow is computed, an application of the optical flow to the current frame results in the consecutive frame. Therefore, the quality of prediction of optical flow can be judged as proportional to the Euclidean distance between the predicted consecutive frame and the true consecutive frame. Pseudo-code for CRAFT is displayed in \hyperref[fig:psCRAFT]{Algorithm 1}.
+Furthermore, due to the absence of ground truth optical flow for common datasets and the challenging problem that optical flow evaluation presents \cite{floweval}, RAFT is trained on datasets that have ground truth optical flow available, namely, KITTI \cite{kitti} and MPI-Sintel \cite{mpisintel}. The quality of each dataset is judged qualitatively by plotting the profile of reconstruction errors produced by CRAFT when applied to normal and anomalous videos. By inspection, MPI-Sintel produces better score profiles (for a subset of UCF Crime) as RAFT outputs flow estimations of higher quality, therefore resulting in less frequent peaks in CRAFT scores. RAFT trained on MPI-Sintel is used in the application of CRAFT to the test set.
+% \par
+% CRAFT does not require a training phase and, with RAFT trained on the chosen dataset, the reconstruction errors are computed and stored between all frames of each video in the independent test set. In addition, the similarity between consecutive frames is also computed (as Euclidean distance) and stored to divide reconstruction errors by similarity. This is done in an effort to obtain an error-per-delta metric that counters the fact that videos with more drastic changes (or activity that fills the frame as opposed to an isolated section) naturally correspond to higher reconstruction error, irrespective of whether anomalous or normal activity is depicted.
+
+% \subsubsection{RAFT}
+% Recurrent All-Pairs Field Transforms for Optical Flow (RAFT) is a fundamental component of CRAFT and a brief explanation is necessary in order to properly to understand CRAFT. 
+% \par
+% Given two consecutive frames from a video, RAFT aims to predict optical flow.
+% The framework consists of three main components: 
+% \begin{itemize}
+%     \item a feature encoder that extracts per-pixel features from both input images.
+%     \item A correlation layer which constructs a 4D ($W \times H \times W \times H$) correlation volume by taking the inner product of all pairs of feature vectors.
+%     \item An update operator which recurrently updates optical flow by using the current estimate to look up values.
+% \end{itemize}
+% The features and correlation volume are computed once between frames and remain fixed while the update operator refines an optical flow estimation between the two frames.
+
+\subsection{LKKM}
+LKKM is a second novel anomaly detection approach that shares a similar purpose to CRAFT in terms of its relevance to the consensus score. However, LKKM specialises in the deviation of the trajectory of objects' paths from typical paths learned throughout the processing of the video.
+% Simply put, LKKM achieves this by cumulatively clustering a video's sparse optical flow vectors and, on the arrival of each additional frame's set of flow vectors, computes the maximum distances of flow vectors to the nearest cluster centroid. Thereafter, the vectors are accumulated in the clustering process.
+\par 
+Given two consecutive frames in a video and a vector of 2D significant points for which flow estimation is required, a vector of 2D points containing the calculated new positions of input features in the second frame is obtained via the Lukas-Kanade method. A data vector is formed with the initial points being the initial coordinates and the returned points being the terminal coordinates. These coordinates are normalised by dividing them by the applicable dimension of the frame (width or height). 
+\par
+To initialise LKKM, the data vectors of the first ten frames contribute to a partial fit of a K-Means model operating in $4D$ feature space. 
+For each additional frame after initialisation is complete, the K-Means clustering of previous data vectors is queried to obtain the nearest centroid distance for each data vector extracted from the frame.
+A frame’s score is computed as an average of the largest distances of data vectors to nearest cluster. Thereafter, the data vectors are accumulated into the training set for the K-Means instance and new centroids are computed. The optimal number of centroids to be used is updated throughout execution via the elbow method \cite{elbow}.
+\par
+As a video progresses, typical trajectories of paths are repeated and stronger clusters are formed, therefore the quality of anomaly scores improves (consider the scene of a highway or walkway). The incremental improvement of the model was verified by applying LKKM to a video that repeats the same clip multiple times - the results show that the same score profile is repeated except with a significant drop in the average level of scores for each repetition.
+\par
+This issue is addressed by applying a time series decomposition of the score profile of a video to separate any cyclical/seasonal trend which occurs as the quality of the model improves. The score profile is selected as the residual component of the time series decomposition i.e., changes that are not cyclical/seasonal but originate as a result of inherent noise (anomaly) in a time series.
+A concise description of the LKKM algorithm is provided in the pseudo-code of \hyperref[fig:psLKKM]{Algorithm 2}.
+
+
+\section{Experiments}\label{sec:empirical}
+This section provides a detailed description of the experiments conducted to apply the proposed methodology (\ref{sec:implementation}) to the UCF Crime dataset. 
+
+
+\subsection{UCF Crime Dataset} 
+Recall that this work focuses on anomaly detection in its most useful application to society i.e. as an alerting system to unwanted activity. 
+The UCF Crime dataset \cite{dataset} is of significant relevance to public safety.
+The dataset contains 950 anomalous videos and 950 normal videos. The cumulative length of footage is 128 hours, with the average number of frames per video equal to 7247 (approximately 4 minutes at 30 fps). Only footage sourced from CCTV surveillance cameras is included - edited video or staged anomaly is excluded. The anomalous videos contain anomalies classified into 13 classes of dangerous/malicious/alarming activity: Abuse, Arrest, Arson, Assault, Accident, Burglary, Explosion, Fighting, Robbery, Shooting, Stealing, Shoplifting, and Vandalism.
+UCF Crime provides a worthy challenge to the anomaly detection problem for the following reasons:
+\begin{itemize}
+    \item The dataset contains long, untrimmed surveillance videos which truly replicate the scenario of real-world anomaly detection.
+    \item The problem-domain of unwanted activity still leaves the anomaly detection problem under-specified, differentiating anomaly detection (regression) from activity recognition (classification), and implying that the solution should be highly generalisable.
+    \item State-of-the-art anomaly detection frameworks, many of which are subjected to unrealistic or artificial datasets, achieve poor results on UCF Crime \cite{lu} \cite{hassan}.
+\end{itemize}
+ For both anomalous and normal videos, 850 instances form the training set and 140 instances are reserved for the independent test set. Videos within the dataset are vastly different from one another and, for this reason, an evaluation on the test set is a good approximation of a test of the mapping learned on the full problem domain even though the test set is only a finite sample of the problem domain. That is, the evaluation is better described as an evaluation of the ability for the framework to perform transfer learning as unseen footage is likely to be dissimilar to the training set and overfitting on the training set will result in a severe penalty to performance. 
+
+\subsection{Base Model Experiments}
+The first phase of experimentation is concerned with training an optimal base model. Five \textit{versions} of the base model are trained. The standard base model, discussed in previous sections, is the first version and represents a base case. Additional versions are characterised by: modification to ANN architecture, the introduction of an additional constraint in the objective function, a combination of the previous two modifications, and transfer learning with weights provided by Sultani et al. (followed by a short fine-tuning stage).
+Each version is trained for a number of epochs determined by the patience threshold. That is, the number of consecutive epochs for which $\rho = \frac{\mathcal{L}_{V}}{\mathcal{L}_T}$ is monotonically increasing before training is terminated (where $\mathcal{L}_{V}$ and $\mathcal{L}_T$ are VLE validation loss and VLE training loss, respectively).
+Three patience thresholds are tested such that performance of the model can be measured at multiple balances of bias and variance - training schedules are dictated by patience rather than epochs as it provides a better indication of the model's expected ability to generalise to unseen data. For comparison, an additional experiment is run at an over-estimated fixed number of epochs. A \textit{version} is therefore represented by four experiments, each of which reports VLE-AUC that is cross-validated over ten folds for a certain patience threshold.
+\par
+The best version, with the optimal training schedule, is identified from a table of VLE-AUC and a final experiment is run with identical settings, except that no cross-validation is performed, therefore allowing training to execute on the totality of the training set. The resulting weights represent the base model in \ref{sec:infscorecomb}.
+
+\subsection{Inference \& Score Combination} \label{sec:infscorecomb}
+The consensus framework is introduced during the evaluation of the three models/heuristics (base model, CRAFT, LKKM). Each approach is applied to the independent test set to yield respective score profiles. The CRAFT and LKKM heuristics are applied, as explained, to each frame in a test instance, whereas the base model obtains scores by performing inference on each video, represented by $\mathcal{S} \times 4096D$ vectors, and subsequently obtaining a score profile consisting of $\mathcal{S}$ temporal scalars.
+\par
+During score combination, just as the base model scores are divided into $\mathcal{S}$ segments and averaged within segments, so too are the CRAFT and LKKM score profiles. CRAFT and LKKM scores are then standardised and filtered such that all scores below two standard deviations from the mean are set to 0. This is necessary as CRAFT and LKKM are sensitive heuristics that produce erratic score profiles. Thereafter, three score profiles, each of length $\mathcal{S}$, are combined according to the pseudo-code in \hyperref[fig:combine]{Algorithm 3}. Note the intention to leverage the higher-level context contained in the scores of the base model with the expectation that false positives are deterred.
+
+\subsection{Implementation details}
+\subsubsection{Feature Extraction} \label{sec:featex}
+ Videos contain 8-bit unsigned integer pixel values in range $[0, 255]$. In line with C3D's training procedure, frames are not normalised/standardised/centered in any way. The UCF Crime dataset does not lend well to standard image/video preprocessing techniques as videos originate from vastly different settings and computing the mean frame of the dataset for standardisation does not seem to be a sensible approach. Standardising per frame or per video was considered but decided against so as to preserve temporal continuity in 16-frame video sequences which otherwise may have been disrupted by sudden shifts in means.
+ Before feature extraction, videos are converted to RGB in three channels and resized to $112 \times 112 \times 3$ (by intercubic interpolation). 
+ Features resulting from normalised C3D are stored in 32-bit floating-point representation with scale of 4 decimals. A video's features are averaged within $\mathcal{S} = 32$ segments.
+ Feature extraction is performed on a Tesla V100-PCIE-32GB GPU with 80 cores and 1.38GHz core clock. The total elapsed time for feature extraction on this architecture is 25 hours 41 minutes.
+ 
+\subsubsection{Base Model}
+\FloatBarrier
+\begin{table*}[]
+\begin{center}
+\begin{tabular}{llll}
+\hline
+Version Key & ANN Architecture & Weight Initialisation                          & Loss Constraints \\ 
+\hline
+\texttt{base}                      & 4096-512-32-1    & glorot-uniform & $\lambda_1=8 \times 10^{-5}$, $\lambda_2=8 \times 10^{-5}$, $\lambda_3=0$  \\
+\texttt{base-arch}                 & 4096-512-32-8-1  & glorot-uniform & $\lambda_1=8 \times 10^{-5}$, $\lambda_2=8 \times 10^{-5}$, $\lambda_3=0$ \\
+\texttt{base-constrain}            & 4096-512-32-1    & glorot-uniform & $\lambda_1=8 \times 10^{-5}$, $\lambda_2=8 \times 10^{-5}$, $\lambda_3=8 \times 10^{-4}$  \\
+\texttt{base-arch-cons}            & 4096-512-32-8-1  & glorot-uniform & $\lambda_1=8 \times 10^{-5}$, $\lambda_2=8 \times 10^{-5}$, $\lambda_3=8 \times 10^{-4}$ \\
+\texttt{base-transfer}             & 4096-512-32-8-1  & Sultani et al. \cite{sultani} & $\lambda_1=8 \times 10^{-5}$, $\lambda_2=8 \times 10^{-5}$, $\lambda_3=8 \times 10^{-4}$ \\
+
+\end{tabular}
+\end{center}
+\caption{Base Model: Experiment design.}
+
+\label{tab:expdesign}
+\end{table*}
+
+
+The experimental design for obtaining an optimal base model is detailed in \hyperref[tab:expdesign]{Table 1}.
+Each version is run at patience thresholds of 25, 50 and 100 training epochs and the additional fixed-epoch experiment is run for 8000 training epochs.
+ \par
+ The batch size is held constant at $\mathcal{B} = 30$ i.e., 60 videos forming 30 anomalous-normal pairs. 
+ $l_{2}$ regularisation is applied to the ANN weights at penalty coefficient of ($l_{2} = 0.001$). 
+ Adagrad optimiser \cite{adagrad} is employed with an initial learning rate of $1 \times 10^{-3}$.
+ The dropout rate is set to $0.6$ - note that this is the probability of \textit{retaining} a unit $p$ within a hidden layer on a given training pass i.e., units are randomly deactivated with a probability of $1 - 0.6 = 0.4$.
+ Temporal and sparsity constraints are set to $\lambda_{1} = 8 \times 10^{-5}$ and $\lambda_{2} = 8 \times 10^{-5}$, respectively. On the same hardware used for feature extraction, it takes 14 hours and 43 minutes to execute the maximum length training simulation (8000 epochs).
+ For clarity, \texttt{base-transfer}, listed in \hyperref[tab:expdesign]{Table 1}, describes a version of the base model where weights resulting from the training of Sultani et al. \cite{sultani} are loaded into the standard base model. Thereafter the top layer is removed and replaced by an 8-unit fully connected layer, \texttt{fc-8}, which is followed by a single unit output, \texttt{fc-1}. During training, all layers' weights except for \texttt{fc-8} and \texttt{fc-1} are frozen i.e., not trainable. After the frozen model has been trained to exceed the patience threshold, all weights are set to trainable and 100 epochs of fine-tune training is conducted with Adadelta optimiser \cite{adadelta} at a learning rate of $1\times10^{-5}$.
+ 
+ 
+ 
+ \subsubsection{CRAFT and LKKM}
+ Videos are converted to the format detailed in \ref{sec:featex}, except for the case of LKKM where videos are represented in single-channel format i.e., $112 \times 112 \times 1$.   
+ Before computation of optical flow via RAFT, Gaussian blur with a kernel size of $5 \times 5$ is applied to each frame to remove excessive detail, thereby reducing the general difficulty of the optical flow problem.
+ In line with original RAFT settings \cite{raft}, CRAFT produces optical flow estimations after 24 prediction iterations.
+ For LKKM, K-Means is initialised with 5 centroids and k-means++ centroid initialisation. The optimal number of centroids is computed every 5 iterations.
+ A maximum of 300 significant features is extracted per frame by Shi-Tomasi corner detection \cite{shitomasi}.
+ The window size set for the Lukas-Kanade flow is $15 \times 15$ pixels in dimension.
+ The number of centroids is recomputed with the elbow method every 5 frames.
+ The maximum distance of data vector to cluster center is computed as an average over that of the largest 50 distances yielded by LKKM.
+ Time series decomposition is performed with a period equal to 10.
+\par
+
+
+\subsection{Performance Metrics}
+The consensus score profiles of videos in the independent test set are evaluated according to the following criteria: the test set contains annotations correlating to the anomalous frames of anomalous videos. A true positive (TP) occurs in the case that at least one score within the annotated window exceeds the threshold. A false negative (FN) occurs if no score in the annotated window exceeds the threshold. In the case that there are two anomalies in one video, each is treated as an individual instance according to the same criteria. In the case that a score outside of the annotated window exceeds the threshold, provided it is an anomalous video, the score is not penalised. This is because anomalies tend to disrupt the environment, often eliciting further anomalous activity which can not be objectively defined as anomalous or not. Instead, the deterrence of false positives is tested on the normal videos of the test set.
+\par
+For normal videos, the requirement for a true negative (TN) is that not one score exceeds the threshold. For a false positive (FP) to occur, at least one score must exceed the threshold. A full normal video is considered to be one normal instance.
+\par
+The decision boundary of the mapping between features and scores is an arbitrary constant in the range $[0, 1]$ and, provided a discriminative threshold is fixed for a complete evaluation process, a specific discriminative threshold (such as $0.5$) does not need to be manually chosen.
+The threshold referred to in the criteria above is a variable in the range $[0.1, 0.9]$. 
+\par
+At each threshold, the confusion matrix is computed and the true positive rate (TPR) and false-positive rate (FPR) are subsequently computed as:
+\begin{equation}
+    TPR = \frac{TP}{TP + FN} = \frac{\# \text{true-positive instances}}{\# \text{anomalous instances}}
+\end{equation}
+\begin{equation}
+    FPR = \frac{FP}{FP + TN} = \frac{\# \text{false-positive instances}}{\# \text{normal instances}}
+\end{equation}
+Thereafter, a frame-based receiver operating characteristic (ROC) curve is employed. Area under curve (AUC) \cite{auc} is used to evaluate the performance of the framework, as in earlier research in anomaly detection \cite{crowdedscenes}.
+Equal error rate (EER) \cite{crowdedscenes} is disregarded because it does not accurately measure anomaly, especially if only a small fraction of a long video contains anomalous behavior.
+
+
+
+
+\section{Results}
+% CONCISE
+% QUALITY >QUANTITY
+
+\begin{table}[h!]
+\begin{tabular}{lcccc}
+\multicolumn{1}{c|}{}                       & AUC  &      &       &       \\ \hline
+\multicolumn{1}{l|}{Version Key}          & $P=25$ & $P=50$ & $P=100$ & $E=8000$ \\ \hline
+\multicolumn{1}{l|}{\texttt{base}}  &    0.7251   &   0.7235      &   0.7356    &    0.7808   \\
+\multicolumn{1}{l|}{\texttt{base-arch}}        &    0.7825   &   0.8233      &   0.8154    &    0.7176    \\
+\multicolumn{1}{l|}{\texttt{base-constrain}}  &    0.7525   &   0.8012      &   0.8242    &    0.7793    \\
+\multicolumn{1}{l|}{\texttt{base-arch-cons}}          &    0.8031  &   0.8267      &   0.8148     &   0.7413     \\
+\multicolumn{1}{l|}{\texttt{base-transfer}}  &  0.7535    &  0.7756     &   0.7693    &  0.6982 \\
+\multicolumn{1}{l|}{\textit{  with fine-tuning}} &   0.7767   &      0.7945 &   0.8015    &      0.7424 \\
+\end{tabular}
+\caption{Base Model: Cross-validated AUC at patience threshold $P$ and number of training epochs $E$.}
+\label{tab:aucs}
+\end{table}
+% START
+\hyperref[tab:aucs]{Table 2} reports VLE-AUC for each version of the base model, trained at the specified patience threshold (or number of epochs in case of the last column). The general quality of the base model's predictions, irrespective of version, is relatively high in comparison to AUC quoted in previous works \footnote{$0.5060$ \cite{hassan}, $0.6551$ \cite{lu}}. This is largely owing to the fact that VLE ignores precise locality of an anomaly; however, that is the only factor that VLE does not take into account and any penalty that the base model incurred during strict evaluation is as a direct result of inability to perform accurate locality of anomaly. The highest VLE-AUC is achieved by \texttt{base-arch-cons} at $P=50$, suggesting that the base model benefits from a deeper architecture and/or further specification of training incentive. However, note that there is a clear tendency for deeper architectures to overfit given an extended number of training epochs (\texttt{base-arch} and \texttt{base-arch-cons} at $E=8000$). Interestingly, the standard \texttt{base} version reports better AUC for $E=8000$ than for training simulations conducted with patience thresholds. It is plausible that the significant levels of dropout result in a convoluted profile of $\rho$ ratios, causing training to converge to local minimas which require an extended amount of training epochs to escape.    
+\par
+Strict evaluation of the base model with respect to annotations yields the blue ROC curve depicted in \hyperref[fig:ROC]{Figure 2}, corresponding to AUC of $0.7156$. This is a quality result from the base model considering the complexity of the problem, which is highlighted by the AUC of $0.5$ that results from application of a binary SVM classifier to the anomaly detection problem. Sultani et al. \cite{sultani} suggests the use of the binary SVM classifier as a generic representative of traditional classification methods \footnote{AUC of 0.5 in binary classification implies a model which is equivalent to random class selection at $P(ANOMALOUS)=0.5$ and $P(NORMAL)=0.5$}.
+\par
+With that being said, the decline from VLE-AUC to strict evaluation AUC is approximately $10\%$. This result confirms the expectation that the base model may struggle to provide fine-grained anomaly detection over a large problem domain, thereby reinforcing the case for combining the base model with additional CRAFT and LKKM heuristics.
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=\linewidth]{ROCsmall.png}
+    \caption{Receiver operating characteristic (ROC) comparison of binary SVM classifier, base model, CRAFT, LKKM, and consensus framework.}
+    \label{fig:ROC}
+\end{figure}
+The CRAFT and LKKM heuristics perform as intended i.e., with an excessive amount of flaggings, although often including true anomalous flags. The purple and orange curves in \hyperref[fig:ROC]{Figure 2} correspond to ROC for CRAFT and LKKM, respectively. These curves represent CRAFT and LKKM as stand-alone anomaly detection solutions. Both CRAFT (AUC=0.5951) and LKKM (AUC=0.5403) out-perform the binary SVM classifier, thereby indicating that there is merit to the methods. \hyperref[fig:exp011analysis]{Figure 3} depicts an analysis of score profiles provided by CRAFT and LKKM on anomalous video \texttt{Explosion011}. Notice how CRAFT, denoted by yellow scores, yields a peak in reconstruction error by exploiting poor optical flow prediction from RAFT in the case that a white cloud of smoke suddenly appears against a bus in the frame. Thereafter, a tuk-tuk swerves left to avoid the commotion and LKKM, denoted by red scores, yields a peak in its scores due to a significant deviation from relatively repetitive patterns of motion (road traffic). Both CRAFT and LKKM provide monitoring of frames at a level of detail that can not be expected from the base model; however, the heuristics suffer from the type of scores seen earlier on the temporal axis of \hyperref[fig:exp011analysis]{Figure 3} where, in this case, CRAFT produced a peak in scores due to a vehicle suddenly coming into view at the bottom of the frame. Given the high FPR and high TPR which characterise the CRAFT and LKKM curves, it is evident that the competency of the heuristics is attributable to their anomaly detection ability and not at all to their ability to deter false positives. This behavior prevents the use of CRAFT or LKKM as a stand-alone anomaly detection solution as an excessive amount of false positives is guaranteed.
+\par
+Finally, the base model is combined with the CRAFT and LKKM heuristics to form the consensus framework. Ideally, the consensus framework is able to combine the scores in such a way that the merit of all three approaches is reflected in the score profile. The red curve in \hyperref[fig:ROC]{Figure 2} depicts the performance of the consensus framework. By inspection, the consensus framework does not provide a clear improvement in anomaly detection in comparison to the original base model. A comparison of AUC (consensus: 0.7041, base: 0.7156) indicates that the combination of approaches results in an adverse effect on overall anomaly detection ability. The combination of the three score profiles is the point of failure in the consensus framework. Without prior information on whether a particular video may contain anomaly or not, the task of optimal combination of score profiles is surprisingly non-trivial. The score combination technique applied in this case (detailed in \hyperref[fig:psCON]{Algorithm 3}) was chosen via an empirical comparison between various alternatives. The selected technique prioritises low scores provided by the base model for normal videos as this feature of the base model is paramount to robust anomaly detection. Under this score combination technique, the CRAFT and LKKM heuristics play a supporting role where the base model's scores are only amplified by the heuristics'; however, in the case that the base model produces scores below a minimum threshold, successful anomaly detection from CRAFT and LKKM is discarded (refer to \texttt{Shooting022} in Figure 13). With a more elaborate score combination process, the consensus framework may be able to better utilise the heuristics for an improvement in overall anomaly detection ability.
+\par
+
+The optimal anomaly detection performance amongst all experiments is displayed in the confusion matrix of \hyperref[fig:CMAT]{Figure 4} - this evaluation is performed at a discriminative threshold of $0.4$. The source of the result, \texttt{base-arch-cons}, confirms that there is in fact utility to be gained from an additional layer of abstraction and the addition of a constraint to loss specification such that increased 'peakedness' is incentivised by the training process of the base model. Furthermore, the number of true positive and true negative cases is well balanced, indicating a certain level of sophistication to the base model's approach in that sufficient context is learned to deter false positives. 
+\par
+Figures \hyperref[fig:arson009]{5} to \hyperref[fig:failnormal041]{14} present a selection of qualitative results from the consensus framework. The score profiles (base model, CRAFT \& LKKM, consensus framework) depicted for each instance are those used in evaluation of the particular instance to arrive at the \hyperref[fig:ROC]{ROC curves} and \hyperref[fig:CMAT]{confusion matrix}.
+In particular, note in \hyperref[fig:arson009]{Figure 5} how base model scores are amplified by CRAFT scores such that a clear indication of anomaly is provided by the consensus framework. Also, note in \hyperref[fig:arson009]{5} and \hyperref[fig:explosion008]{6} that base model scores which are below a threshold are mapped to zero scores in the consensus score profile. 
+\par
+Figures \hyperref[fig:arson009]{5}, \hyperref[fig:explosion008]{6}, \hyperref[fig:roadaccidents010]{7}, \hyperref[fig:vandalism007]{8}, \hyperref[fig:fighting033]{9} provide a demonstration of CRAFT and LKKM's tendency to produce an excessive amount of false positives, although the frequency of true positives should also be noted.
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=\linewidth, trim={0 0 4cm 0}, clip]{CMATsmall.png}
+    \caption{Optimal confusion matrix produced by anomaly detection framework at the discriminative threshold of 0.4. 'A' corresponds to anomalous instances and 'N' to normal.}
+    \label{fig:CMAT}
+\end{figure}
+Referring back to frequent shortfalls of anomaly detection frameworks, discussed in \ref{subsec:shortfalls}, recall that a prevalent problem of anomaly detection is that frameworks cannot generalise across polar examples of anomaly. The consensus scores in \hyperref[fig:explosion008]{Figure 6} and \hyperref[fig:fighting033]{Figure 9} demonstrate instances where the consensus framework successfully detects anomaly in opposing classes, namely explosion and fighting. Additionally, in the fighting instance, notice that the contribution by CRAFT and LKKM reinforce the detection of the specific anomaly.
+Figures \hyperref[fig:normal010]{10}, \hyperref[fig:normal019]{11}, \hyperref[fig:normal006]{12} demonstrate the value of the base model in deterring false positives which may arise in normal instances. In particular, the base model is able to produce a score profile of zeros in \hyperref[fig:normal010]{Figure 10} which corresponds to a score profile for nighttime CCTV surveillance. The fact that the base model has not associated anomalous activity with nighttime activities is a positive reflection on the depth of context learned by the base model.   
+\par
+Figures \hyperref[fig:failshooting022]{13} and \hyperref[fig:failnormal041]{14} show failure cases of the consensus framework. In particular, \hyperref[fig:failshooting022]{Figure 13} shows a case where CRAFT and LKKM accurately detect anomaly however, the base model produces an inaccurate score profile. The score combination process discards the scores from CRAFT and LKKM to prioritise the zero-scores from the base model and the heuristics are unable to contribute to successful anomaly detection. This demonstrates the heavy dependency placed on the base model by a score combination process which may seem somewhat rudimentary in some instances. \hyperref[fig:failnormal041]{Figure 14} demonstrates a false positive produced by the base model which may be attributable to the unusual camera angle (birds-eye) of \texttt{Normal041}. The base model would not have been trained on footage from this perspective and therefore it may misinterpret appearance and motion to be similar to that of anomalous activity.
+\par
+The respective score profiles for videos in the test set are available at: \url{https://share.streamlit.io/tomschdev/cctvanomalydetection/demo/src/pred_evaluation.py}
+
+
+% deploy web app and give link to see all results
+
+\section{Conclusion}
+This paper investigates automated anomaly detection from three perspectives. First, a modified version of a prevalent deep learning approach, devised by Sultani et al. \cite{sultani}, is implemented and evaluated with thorough experimentation on a challenging dataset. The results indicate that this approach presents a realistic solution to anomaly detection, confirming that deep learning approaches are indispensable to the development of state-of-the-art anomaly detection frameworks.
+\par
+Second, the usefulness of low-level anomaly detection heuristics, CRAFT and LKKM, is investigated. Through qualitative analysis of a selection of score profiles and quantitative analysis by AUC of respective ROC curves, CRAFT and LKKM are proven to be of use in an anomaly detection setting; however, the heuristics are sensitive and erratic which implies that the underlying concepts are not necessarily useful in isolation but need to be combined with a more sophisticated solution.
+\par
+Finally, the consensus framework attempts to combine the base model, CRAFT, and LKKM into a single, robust solution. Qualitative analysis of score profiles demonstrates instances where this concept is useful however, the decline in AUC from the base model to the consensus framework shows that the consensus framework ultimately fails to add value to the overall anomaly detection ability of the base model. 
+% Potential reasons for the result are mentioned in \ref{sec:future}.   
+
+\section{Future Work} \label{sec:future}
+The UCF Crime dataset contains videos that include impurities such as cut-scenes, branding, and black-screen introductions that contain text. Technically, the base model is equipped to deal with these impurities by recognising such frames as false positive instances that are naturally assigned lower scores by the loss equation. However, this only holds under the assumption that the impurities are well represented in the set of normal videos. Nonetheless, it would undoubtedly benefit the base model if such impurities were removed so that the learned idea of anomalous activity is more accurate. 
+\par
+The performance of the consensus framework suggests that a single source of anomaly scores is preferred over a combination of scores. Additionally, CRAFT and LKKM do not receive enough incentive to correspond peaks in scores with true anomalies. These two observations suggest that the utility provided by CRAFT and LKKM can only be accessed if their methodologies can be integrated with the base model such that heuristics can be refined/trained based on the quality of scores produced, and the score combination problem can be avoided. Furthermore, the base model is not trained end-to-end as pre-trained weights are substituted into the C3D implementation. An end-to-end version of the anomaly detection framework should be a priority in future work as it would enable the learning of specific low-level features which correspond to anomaly. By improving the low-level monitoring abilities of the base model, the need for low-level heuristics such as CRAFT and LKKM may be invalidated altogether, therefore end-to-end training of the base model should be investigated before considering integration between CRAFT/LKKM and the base model.
+\par
+The base model can be extended to perform activity classification, rather than just event detection, by removing the single-unit top layer of the ANN and attaching a 13-unit output layer. Each of the 13 units will correspond to one of the 13 anomaly classes of UCF Crime and, by employing a softmax activation function, the output activations can be interpreted as the probability of activity belonging to the corresponding class. Perhaps the output layer includes 14 units, with the extra unit corresponding to normal activity.
+\par
+Finally, a lower priority enhancement is the implementation of active learning i.e., uncertainty sampling \cite{alus} or sensitivity analysis for selective learning \cite{sasla}, for the ANN of the base model. This enhancement allows for more informative patterns, which lie closer to decision boundaries, to be prioritised in training - a useful function given a large, dissimilar dataset. Note that the implementation would require predictions of the base model to be strictly evaluated at a discriminative threshold during training as active learning applies to classification problems only.  
+
+\begin{thebibliography}{00}
+\bibitem{tensorflow} Abadi, M., Barham, P., Chen, J., Chen, Z., Davis, A., Dean, J., Devin, M., Ghemawat, S., Irving, G., Isard, M. and Kudlur, M., 2016. Tensorflow: A system for large-scale machine learning. In 12th {USENIX} symposium on operating systems design and implementation ({OSDI} 16) (pp. 265-283).
+TensorFlow: Large-scale machine learning on heterogeneous systems,
+2015. Software available from tensorflow.org.
+\bibitem{floweval} Baker, S., Scharstein, D., Lewis, J.P., Roth, S., Black, M.J. and Szeliski, R., 2011. A database and evaluation methodology for optical flow. International journal of computer vision, 92(1), pp.1-31.
+\bibitem{auc} Bradley, A.P., 1997. The use of the area under the ROC curve in the evaluation of machine learning algorithms. Pattern recognition, 30(7), pp.1145-1159.
+\bibitem{lukaskanade} Bouguet, J.Y., 2001. Pyramidal implementation of the affine lucas kanade feature tracker description of the algorithm. Intel corporation, 5(1-10), p.4.
+\bibitem{mpisintel} Butler, D., Wulff, J., Stanley, G. and Black, M., 2012. MPI-Sintel optical flow benchmark: Supplemental material. In MPI-IS-TR-006, MPI for Intelligent Systems (2012. Citeseer.
+\bibitem{dataset} Chen, C. and others, 2018. UCF. Available at: https://www.crcv.ucf.edu/chenchen
+\bibitem{keras} Chollet, F. and others, 2015. Keras. Available at: https://github.com/fchollet/keras.
+\bibitem{yupenn} Derpanis, K.G., Lecce, M., Daniilidis, K. and Wildes, R.P., 2012, June. Dynamic scene understanding: The role of orientation features in space and time in scene classification. In 2012 IEEE Conference on Computer Vision and Pattern Recognition (pp. 1306-1313). IEEE.
+\bibitem{adagrad} Duchi, J., Hazan, E., Singer, Y. (2011). Adaptive Subgradient Methods for Online Learning and Stochastic optimisation. Journal of Machine Learning Research, 12, 2121–2159. Retrieved from http://jmlr.org/papers/v12/duchi11a.html
+\bibitem{flownet} Dosovitskiy, A., Fischer, P., Ilg, E., Hausser, P., Hazirbas, C., Golkov, V., Van Der Smagt, P., Cremers, D. and Brox, T., 2015. Flownet: Learning optical flow with convolutional networks. In Proceedings of the IEEE international conference on computer vision (pp. 2758-2766). 
+\bibitem{sasla} Engelbrecht, A.P., 2001. Sensitivity analysis for selective learning by feedforward neural networks. Fundamenta Informaticae, 46(3), pp.219-252.
+\bibitem{feng} Feng, J.C., Hong, F.T. and Zheng, W.S., 2021. Mist: Multiple instance self-training framework for video anomaly detection. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (pp. 14009-14018).
+\bibitem{kitti} Geiger, A., Lenz, P., Stiller, C. and Urtasun, R., 2013. Vision meets robotics: The kitti dataset. The International Journal of Robotics Research, 32(11), pp.1231-1237.
+\bibitem{hassan} Hasan, M., Choi, J., Neumann, J., Roy-Chowdhury, A.K. and Davis, L.S., 2016. Learning temporal regularity in video sequences. In Proceedings of the IEEE conference on computer vision and pattern recognition (pp. 733-742).
+\bibitem{imagenet} Jia, Y., Shelhamer, E., Donahue, J., Karayev, S., Long, J., Girshick, R., Guadarrama, S. and Darrell, T., 2014, November. Caffe: Convolutional architecture for fast feature embedding. In Proceedings of the 22nd ACM international conference on Multimedia (pp. 675-678).
+\bibitem{islr} James, G., Witten, D., Hastie, T. and Tibshirani, R., 2013. An introduction to statistical learning (Vol. 112, p. 18). New York: springer.
+\bibitem{sports1m} Karpathy, A., Toderici, G., Shetty, S., Leung, T., Sukthankar, R. and Fei-Fei, L., 2014. Large-scale video classification with convolutional neural networks. In Proceedings of the IEEE conference on Computer Vision and Pattern Recognition (pp. 1725-1732).
+\bibitem{elbow} Kodinariya, T.M. and Makwana, P.R., 2013. Review on determining number of Cluster in K-Means Clustering. International Journal, 1(6), pp.90-95.
+\bibitem{crowdedscenes} Li, W., Mahadevan, V. and Vasconcelos, N., 2013. Anomaly detection and localization in crowded scenes. IEEE transactions on pattern analysis and machine intelligence, 36(1), pp.18-32.
+\bibitem{videopred} Li, Y., Fang, C., Yang, J., Wang, Z., Lu, X. and Yang, M.H., 2018. Flow-grounded spatial-temporal video prediction from still images. In Proceedings of the European Conference on Computer Vision (ECCV) (pp. 600-615).
+\bibitem{lu} Lu, C., Shi, J. and Jia, J., 2013. Abnormal event detection at 150 fps in matlab. In Proceedings of the IEEE international conference on computer vision (pp. 2720-2727).
+\bibitem{kmeans} Likas, A., Vlassis, N. and Verbeek, J.J., 2003. The global k-means clustering algorithm. Pattern recognition, 36(2), pp.451-461.
+\bibitem{futureframepred} Liu, W., Luo, W., Lian, D. and Gao, S., 2018. Future frame prediction for anomaly detection–a new baseline. In Proceedings of the IEEE conference on computer vision and pattern recognition (pp. 6536-6545).
+\bibitem{liu} Liu, W., Luo, W., Lian, D. and Gao, S., 2018. Future frame prediction for anomaly detection–a new baseline. In Proceedings of the IEEE conference on computer vision and pattern recognition (pp. 6536-6545).
+\bibitem{nguyen} Nguyen, T.N. and Meunier, J., 2019. Anomaly detection in video sequence with appearance-motion correspondence. In Proceedings of the IEEE/CVF International Conference on Computer Vision (pp. 1273-1283).
+\bibitem{park} Park, H., Noh, J. and Ham, B., 2020. Learning memory-guided normality for anomaly detection. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (pp. 14372-14381).
+\bibitem{ren} Ren, Z., Yan, J., Ni, B., Liu, B., Yang, X. and Zha, H., 2017, February. Unsupervised deep learning for optical flow estimation. In Thirty-First AAAI Conference on Artificial Intelligence.
+\bibitem{traditionalflow} Shah, S.T.H. and Xuezhi, X., 2021. Traditional and modern strategies for optical flow: an investigation. SN Applied Sciences, 3(3), pp.1-14
+\bibitem{alus} Sharma, M. and Bilgic, M., 2017. Evidence-based uncertainty sampling for active learning. Data Mining and Knowledge Discovery, 31(1), pp.164-202.
+\bibitem{shitomasi} Shi, J., 1994, June. Good features to track. In 1994 Proceedings of IEEE conference on computer vision and pattern recognition (pp. 593-600). IEEE.
+\bibitem{maryland} Shroff, N., Turaga, P. and Chellappa, R., 2010, June. Moving vistas: Exploiting motion for describing scenes. In 2010 IEEE Computer Society Conference on Computer Vision and Pattern Recognition (pp. 1911-1918). IEEE.
+\bibitem{ucf101} Soomro, K., Zamir, A.R. and Shah, M., 2012. UCF101: A dataset of 101 human actions classes from videos in the wild. arXiv preprint arXiv:1212.0402.
+\bibitem{dropout} Srivastava, N., Hinton, G., Krizhevsky, A., Sutskever, I. and Salakhutdinov, R., 2014. Dropout: a simple way to prevent neural networks from overfitting. The journal of machine learning research, 15(1), pp.1929-1958.
+\bibitem{sultani} Sultani, W., Chen, C. and Shah, M., 2018. Real-world anomaly detection in surveillance videos. In Proceedings of the IEEE conference on computer vision and pattern recognition (pp. 6479-6488)
+\bibitem{raft} Teed, Z. and Deng, J., 2020, August. Raft: Recurrent all-pairs field transforms for optical flow. In European conference on computer vision (pp. 402-419). Springer, Cham.
+\bibitem{dutran} Tran, D., Bourdev, L., Fergus, R., Torresani, L. and Paluri, M., 2015. Learning spatiotemporal features with 3d convolutional networks. In Proceedings of the IEEE international conference on computer vision (pp. 4489-4497).
+\bibitem{dutran2} Tran, D., Bourdev, L., Fergus, R., Torresani, L. and Paluri, M., 2016. Deep end2end voxel2voxel prediction. In Proceedings of the IEEE conference on computer vision and pattern recognition workshops (pp. 17-24).
+\bibitem{iot} Vermesan, O., EisenHauer, M., Serrano, M., Guillemin, P., Sundmaeker, H., Tragos, E.Z., Valino, J., Copigneaux, 2018. The next generation internet of things–hyperconnectivity and embedded intelligence at the edge. Next Generation Internet of Things. Distributed Intelligence at the Edge and Human Machine-to-Machine Cooperation.
+\bibitem{wang} Wang, Y.K., Fan, C.T., Cheng, K.Y. and Deng, P.S., 2011, July. Real-time camera anomaly detection for real-world video surveillance. In 2011 International Conference on Machine Learning and Cybernetics (Vol. 4, pp. 1520-1525). IEEE.
+\bibitem{dynamicmil} Wan, B., Fang, Y., Xia, X. and Mei, J., 2020, July. Weakly supervised video anomaly detection via center-guided discriminative learning. In 2020 IEEE International Conference on Multimedia and Expo (ICME) (pp. 1-6). IEEE
+\bibitem{idt} Wang, H. and Schmid, C., 2013. Action recognition with improved trajectories. In Proceedings of the IEEE international conference on computer vision (pp. 3551-3558).
+\bibitem{adadelta} Zeiler, M. D. (2012). ADADELTA: An Adaptive Learning Rate Method. Retrieved from http://arxiv.org/abs/1212.5701
+\bibitem{innerbag} Zhang, J., Qing, L. and Miao, J., 2019, September. Temporal convolutional network with complementary inner bag loss for weakly supervised anomaly detection. In 2019 IEEE International Conference on Image Processing (ICIP) (pp. 4030-4034). IEEE.
+\bibitem{viewsyn} Zhou, T., Tulsiani, S., Sun, W., Malik, J. and Efros, A.A., 2016, October. View synthesis by appearance flow. In European conference on computer vision (pp. 286-301). Springer, Cham.
+\end{thebibliography}
+% \bibliographystyle{ACM-Reference-Format}
+% \bibliography{sample-base}
+
+\FloatBarrier
+\appendix
+
+
+
+
+
+
+\begin{figure*}[h!]
+    \centering
+    \begin{minipage}[b]{\textwidth}
+        \centering
+        \includegraphics[width=0.22\linewidth]{arson009.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{arsonbase.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{arsonheur.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{arsoncon.png}
+        \caption{Arson009: Left: video instance. Second from left: base model score profile (orange) with annotation (blue). Second from right: CRAFT (orange) and LKKM (red) score profiles with annotation (blue). Right: consensus framework score profile (orange) with annotation (blue). The score profiles of instances displayed in Figures \hyperref[fig:explosion008]{6} to \hyperref[fig:failnormal041]{14} follow identical order.}
+        \label{fig:arson009}
+    \end{minipage}
+\end{figure*}
+\begin{figure*}[h!]
+    \centering
+    \begin{minipage}[b]{\textwidth}
+        \centering
+        \includegraphics[width=0.22\linewidth]{explosion008.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{explosionbase.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{explosionheur.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{explosioncon.png}
+        \caption{Explosion008}
+        \label{fig:explosion008}
+    \end{minipage}
+\end{figure*}
+\begin{figure*}[h]
+    \centering
+    \begin{minipage}[b]{\textwidth}
+        \centering
+        \includegraphics[width=0.22\linewidth]{roadacc010.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{roadbase.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{roadheur.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{roadcon.png}
+        \caption{RoadAccidents010}
+        \label{fig:roadaccidents010}
+    \end{minipage}
+\end{figure*}
+
+\begin{figure*}[h]
+    \centering
+    \begin{minipage}[b]{\textwidth}
+        \centering
+        \includegraphics[width=0.22\linewidth]{vandal.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{vandalbase.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{vandalheur.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{vnadalcon.png}
+        \caption{Vandalism007}
+        \label{fig:vandalism007}
+    \end{minipage}
+\end{figure*}
+\begin{figure*}[h]
+    \centering
+    \begin{minipage}[b]{\textwidth}
+        \centering
+        \includegraphics[width=0.22\linewidth]{fight033.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{fight033base.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{fight033heur.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{fight033con.png}
+        \caption{Fighting033}
+        \label{fig:fighting033}
+    \end{minipage}
+\end{figure*}
+
+\begin{figure*}[h]
+    \centering
+    \begin{minipage}[b]{\textwidth}
+        \centering
+        \includegraphics[width=0.22\linewidth]{normal010.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{normal10base.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{normal10heur.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{normal10con.png}
+        \caption{Normal010}
+        \label{fig:normal010}
+    \end{minipage}
+\end{figure*}
+\begin{figure*}[h]
+    \centering
+    \begin{minipage}[b]{\textwidth}
+        \centering
+        \includegraphics[width=0.22\linewidth]{normal019.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{normal19base.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{normal19heur.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{normal19con.png}
+        \caption{Normal019}
+        \label{fig:normal019}
+    \end{minipage}
+\end{figure*}
+\begin{figure*}[h]
+    \centering
+    \begin{minipage}[b]{\textwidth}
+        \centering
+        \includegraphics[width=0.22\linewidth]{normal006.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{norm006base.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{norm006heur.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{norm006con.png}
+        \caption{Normal006}
+        \label{fig:normal006}
+    \end{minipage}
+\end{figure*}
+\begin{figure*}[h]
+    \centering
+    \begin{minipage}[b]{\textwidth}
+        \centering
+        \includegraphics[width=0.22\linewidth]{failshoot.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{failshootbase.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{failshootheur.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{failshootcon.png}
+        \caption{Failure Case: Shooting022}
+        \label{fig:failshooting022}
+    \end{minipage}
+\end{figure*}
+\begin{figure*}[h]
+    \centering
+    \begin{minipage}[b]{\textwidth}
+        \centering
+        \includegraphics[width=0.22\linewidth]{failmnormal.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{failnormbase.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{failnormheur.png}
+        \includegraphics[width=0.25\linewidth, trim={0 0 3cm 0}, clip]{failnormcon.png}
+        \caption{Failure Case: Normal041}
+        \label{fig:failnormal041}
+    \end{minipage}
+\end{figure*}
+
+\begin{figure*}[h!]
+    \centering
+    \includegraphics[width=\linewidth]{exp011analysis.png}
+    \caption{Analysis of CRAFT and LKKM score profiles to demonstrate CRAFT's ability to detect anomaly characterised by unexpected change in appearance (sudden appearance of smoke cloud against bus), and LKKM's ability to detect deviation from repetitive patterns of motion (tuk-tuk swerves to avoid commotion).}
+    \label{fig:exp011analysis}
+\end{figure*}
+% \vspace*{4cm}
+\newpage
+\FloatBarrier
+\begin{algorithm*} \label{fig:psCRAFT}
+	\caption{Frame Construction with RAFT (CRAFT)} 
+	\begin{algorithmic}[1]
+	\State \textbf{Require:} $\mathcal{V}$, video instance  
+	\State \textbf{Require:} $\mathcal{R}$, RAFT instance 
+	\State $\mathcal{E} \leftarrow []$
+	\State $\mathcal{D} \leftarrow []$
+	\State $f_{i} \leftarrow$ read$(\mathcal{V})$
+	\State $f_{i}^{\prime} \leftarrow$ gaussianBlur$(f_{i})$
+	\While {hasNext($\mathcal{V}$)}
+	\State $f_{i+1} \leftarrow read(\mathcal{V})$
+	\State $f_{i+1}^{\prime} \leftarrow$ gaussianBlur$(f_{i})$
+	\State $h \leftarrow$ height$(f_{i+1}^{\prime})$
+	\State $w \leftarrow$ width$(f_{i+1}^{\prime})$
+	\State $p_{i+1} \leftarrow \mathbf{[0]}_{h \times w} $
+	\State $o_{i} \leftarrow$ estimateOpticalFlow$(\mathcal{R}, f_{i}^{\prime}, f_{i+1}^{\prime})$
+	\State $\hat{f_{i+1}} \leftarrow$ applyFlowMap$(f_{i}^{\prime}, o_{i}, p_{i+1})$
+	\State $e_{i} = \vert\vert (\hat{f_{i+1}} - f_{i+1}^{\prime}) \vert\vert$
+	\State $d_{i} = \vert\vert ({f_{i}^{\prime}} - f_{i+1}^{\prime}) \vert\vert$
+    \State $\mathcal{E}$ appends $e_{i}$
+    \State $\mathcal{D}$ appends $d_{i}$
+    \State $f_{i}^{\prime} \leftarrow f_{i+1}^{\prime}$
+	\EndWhile
+	\State \Return $\mathcal{E}$, $\mathcal{D}$
+	\Comment{$\mathcal{E}$ and $\mathcal{D}$ contain reconstruction error and similarity between consecutive frames, respectively, for all frames in a video.}
+	\end{algorithmic} 
+\end{algorithm*}
+
+\newpage
+\FloatBarrier
+\begin{algorithm*} \label{fig:psLKKM}
+	\caption{Lukas-Kanade K-Means (LKKM) Algorithm} 
+	
+	\begin{algorithmic}[1]
+	\State \textbf{Require:} $\mathcal{V}$, video instance.
+	\State \textbf{Require:} $\mathcal{K}$, initialised K-Means model.
+	\State \textbf{Require:} $\mathcal{L}$, frequency of update of optimal number of centroids.
+	\State \textbf{Require:} $c$, initial number of centroids. 
+	\State $\mathcal{S} \leftarrow []$
+	\State $\mathcal{D} \leftarrow []$
+	\State $f_{i} \leftarrow$ read$(\mathcal{V})$
+	\State $\vec{g}_{i} \leftarrow$ extractFeatures$(f_{i})$  
+	\State $iter \leftarrow 0$
+	\While {hasNext($\mathcal{V}$)}
+	\State increment $iter$
+    \State $f_{i+1} \leftarrow$ read$(\mathcal{V})$
+    \State $\vec{g}_{i+1} \leftarrow$ LukasKanade$(f_i$, $f_{i+1}$, $\vec{g}_i$)
+    \State $d_{f_{i}} \leftarrow$ computeDataVectors$(\vec{g}_i, \vec{g}_{i+1})$
+    \If{$iter > 10$}
+        
+        \State $\vec{p}_{i} \leftarrow$ assignDataVectorsToCentroids$(\mathcal{K}, d_{f_{i}})$
+        \State $\vec{q}_{i} \leftarrow$ computeDistToCentroids$(\mathcal{K},  \vec{p}_{i})$
+        \State $s \leftarrow \frac{1}{m}  \sum^{m} \max_{m}(\vec{q}_{i})$
+        \State $\mathcal{S}$ append $s$
+        \State $\mathcal{D}$ append $d_{f_{i}}$
+        \If{$iter \bmod \mathcal{L} == 0$}
+            \State $c =$ computeOptimalCentroids$(\mathcal{K},\mathcal{D})$
+        \EndIf
+        \State partialFit$(\mathcal{K}, \mathcal{D}, c)$
+    \Else
+        \State $\mathcal{D}$ append $d_{f_{i}}$ 
+        \State partialFit$(\mathcal{K}, \mathcal{D}, c)$
+    \EndIf
+    \State $f_{i} \leftarrow f_{i+1}$
+    \State $g_{i} \leftarrow g_{i+1}$
+	\EndWhile
+	\State \Return $\mathcal{S}$
+	\Comment {$\mathcal{S}$ is a collection of anomaly scores per frame,  each score quantifies the similarity of a frames' optical flow to that of previous frames.}
+	\end{algorithmic} 
+\end{algorithm*}
+\newpage
+\FloatBarrier
+\begin{algorithm*} \label{fig:psCON}
+	\caption{Consensus Score Combination} 
+	\begin{algorithmic}[1]
+	\State \textbf{Require:} $\mathcal{B}^{p}$, base model score profile for video $p$.   
+	\State \textbf{Require:} $\mathcal{R}^{p}$, CRAFT heuristic score profile for video $p$. 
+	\State \textbf{Require:} $\mathcal{L}^{p}$, LKKM heuristic score profile for video $p$. 
+	\State $\mathcal{C}^{p} \leftarrow []$
+	\For {$i \leftarrow \mathcal{S}$}
+        \If{$\mathcal{B}_{i}^{p} < 0.1$}
+	        \State $\mathcal{C}_{i}^{p} \leftarrow 0$
+        \Else
+	        \State $\mathcal{C}_{i}^{p} \leftarrow \max (\mathcal{B}_{i}^{p}, \mathcal{R}_{i}^{p}, \mathcal{L}_{i}^{p})$
+        \EndIf
+    \EndFor
+    \State \Return $\mathcal{C}^{p}$
+	\end{algorithmic} 
+\end{algorithm*}
+
+%%
+%% If your work has an appendix, this is the place to put it.
+
+
+
+\end{document}
+\endinput
+%%
+%% End of file `sample-authordraft.tex'.
