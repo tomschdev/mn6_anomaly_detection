@@ -1,0 +1,2 @@
+.h5 model is too large to host on git.
+download the model from the following link: https://drive.google.com/file/d/1CjBnfSZ82rJD4nEKXQhsVgCHAl37p9O1/view?usp=sharing 
